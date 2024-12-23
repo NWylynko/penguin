@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
+import { Trash2 } from 'lucide-react'
 
 type Frequency = 'weekly' | 'monthly' | 'yearly'
 
@@ -62,6 +63,8 @@ export default function FinancialApp() {
     frequency: 'monthly',
     amount: 0
   })
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editingField, setEditingField] = useState<string | null>(null)
 
   useEffect(() => {
     const savedExpenses = localStorage.getItem('expenses')
@@ -94,6 +97,51 @@ export default function FinancialApp() {
       frequency: 'monthly',
       amount: 0
     })
+  }
+
+  const handleDelete = (id: number) => {
+    setExpenses(prev => prev.filter(expense => expense.id !== id))
+  }
+
+  const handleEdit = (id: number, field: string) => {
+    setEditingId(id)
+    setEditingField(field)
+  }
+
+  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { value } = e.target
+    setExpenses(prev => prev.map(expense => {
+      if (expense.id === editingId) {
+        const updatedExpense = {
+          ...expense,
+          [editingField as keyof Expense]: editingField === 'amount' ? parseFloat(value) || 0 : value
+        }
+        if (editingField === 'lastPayment' || editingField === 'frequency') {
+          updatedExpense.nextPayment = calculateNextPayment(
+            editingField === 'lastPayment' ? value : expense.lastPayment,
+            editingField === 'frequency' ? value as Frequency : expense.frequency
+          )
+        }
+        return updatedExpense
+      }
+      return expense
+    }))
+  }
+
+  const handleEditSelect = (value: Frequency) => {
+    setExpenses(prev => prev.map(expense => {
+      if (expense.id === editingId) {
+        const updatedExpense = { ...expense, frequency: value }
+        updatedExpense.nextPayment = calculateNextPayment(expense.lastPayment, value)
+        return updatedExpense
+      }
+      return expense
+    }))
+  }
+
+  const handleEditBlur = () => {
+    setEditingId(null)
+    setEditingField(null)
   }
 
   const totalCosts = useMemo(() => {
@@ -252,6 +300,7 @@ export default function FinancialApp() {
             <TableHead>Weekly Cost</TableHead>
             <TableHead>Monthly Cost</TableHead>
             <TableHead>Yearly Cost</TableHead>
+            <TableHead>Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -259,16 +308,93 @@ export default function FinancialApp() {
             const costs = calculateCosts(expense.amount, expense.frequency)
             return (
               <TableRow key={expense.id}>
-                <TableCell>{expense.name}</TableCell>
-                <TableCell>{expense.account}</TableCell>
-                <TableCell>{expense.lastPayment}</TableCell>
+                <TableCell onDoubleClick={() => handleEdit(expense.id, 'name')}>
+                  {editingId === expense.id && editingField === 'name' ? (
+                    <Input
+                      value={expense.name}
+                      onChange={handleEditChange}
+                      onBlur={handleEditBlur}
+                      autoFocus
+                    />
+                  ) : (
+                    expense.name
+                  )}
+                </TableCell>
+                <TableCell onDoubleClick={() => handleEdit(expense.id, 'account')}>
+                  {editingId === expense.id && editingField === 'account' ? (
+                    <Input
+                      value={expense.account}
+                      onChange={handleEditChange}
+                      onBlur={handleEditBlur}
+                      autoFocus
+                    />
+                  ) : (
+                    expense.account
+                  )}
+                </TableCell>
+                <TableCell onDoubleClick={() => handleEdit(expense.id, 'lastPayment')}>
+                  {editingId === expense.id && editingField === 'lastPayment' ? (
+                    <Input
+                      value={expense.lastPayment}
+                      onChange={handleEditChange}
+                      onBlur={handleEditBlur}
+                      autoFocus
+                      type="date"
+                    />
+                  ) : (
+                    formatDate(new Date(expense.lastPayment))
+                  )}
+                </TableCell>
                 <TableCell>{expense.nextPayment}</TableCell>
-                <TableCell>{expense.frequency}</TableCell>
-                <TableCell>${expense.amount.toFixed(2)}</TableCell>
+                <TableCell onDoubleClick={() => handleEdit(expense.id, 'frequency')}>
+                  {editingId === expense.id && editingField === 'frequency' ? (
+                    <Select
+                      value={expense.frequency}
+                      onValueChange={(value: string) => {
+                        handleEditSelect(value as Frequency);
+                        handleEditBlur();
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="yearly">Yearly</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    expense.frequency
+                  )}
+                </TableCell>
+                <TableCell onDoubleClick={() => handleEdit(expense.id, 'amount')}>
+                  {editingId === expense.id && editingField === 'amount' ? (
+                    <Input
+                      value={expense.amount}
+                      onChange={handleEditChange}
+                      onBlur={handleEditBlur}
+                      autoFocus
+                      type="number"
+                    />
+                  ) : (
+                    `$${expense.amount.toFixed(2)}`
+                  )}
+                </TableCell>
                 <TableCell>${costs.daily.toFixed(2)}</TableCell>
                 <TableCell>${costs.weekly.toFixed(2)}</TableCell>
                 <TableCell>${costs.monthly.toFixed(2)}</TableCell>
                 <TableCell>${costs.yearly.toFixed(2)}</TableCell>
+                <TableCell>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleDelete(expense.id)}
+                    aria-label={`Delete ${expense.name} expense`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </TableCell>
               </TableRow>
             )
           })}
@@ -331,7 +457,7 @@ export default function FinancialApp() {
                       key={expense.id}
                       type="monotone"
                       dataKey={expense.name}
-                      stroke={`var(--color-${expense.name.toLowerCase().replace(/\s+/g, '-')})`}
+                      stroke="#8884d8"
                       strokeWidth={2}
                       dot={false}
                     />
@@ -339,7 +465,7 @@ export default function FinancialApp() {
                   <Line
                     type="monotone"
                     dataKey="Total"
-                    stroke="#8884d8"
+                    stroke="#82ca9d"
                     strokeWidth={3}
                     dot={false}
                   />
