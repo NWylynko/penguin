@@ -8,7 +8,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { Trash2 } from 'lucide-react'
+import { Trash2, ArrowUpDown, ArrowUp, ArrowDown, Settings2 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
 
 type Frequency = 'weekly' | 'monthly' | 'yearly'
 
@@ -20,6 +29,11 @@ interface Expense {
   frequency: Frequency
   amount: number
   nextPayment: string
+}
+
+type SortConfig = {
+  key: keyof Expense | 'dailyCost' | 'weeklyCost' | 'monthlyCost' | 'yearlyCost'
+  direction: 'asc' | 'desc'
 }
 
 const calculateCosts = (amount: number, frequency: Frequency) => {
@@ -56,6 +70,14 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'
 
 export default function FinancialApp() {
   const [expenses, setExpenses] = useState<Expense[]>([])
+  const [sortConfig, setSortConfig] = useState<SortConfig>({
+    key: 'name',
+    direction: 'asc'
+  })
+  const [showDates, setShowDates] = useState(() => {
+    const saved = localStorage.getItem('showDates')
+    return saved ? JSON.parse(saved) : true
+  })
   const [newExpense, setNewExpense] = useState<Omit<Expense, 'id' | 'nextPayment'>>({
     name: '',
     account: '',
@@ -76,6 +98,67 @@ export default function FinancialApp() {
   useEffect(() => {
     localStorage.setItem('expenses', JSON.stringify(expenses))
   }, [expenses])
+
+  const sortedExpenses = useMemo(() => {
+    const sortedData = [...expenses]
+
+    sortedData.sort((a, b) => {
+      let aValue: any = a[sortConfig.key as keyof Expense]
+      let bValue: any = b[sortConfig.key as keyof Expense]
+
+      // Handle cost columns
+      if (['dailyCost', 'weeklyCost', 'monthlyCost', 'yearlyCost'].includes(sortConfig.key)) {
+        const aCosts = calculateCosts(a.amount, a.frequency)
+        const bCosts = calculateCosts(b.amount, b.frequency)
+
+        switch (sortConfig.key) {
+          case 'dailyCost':
+            aValue = aCosts.daily
+            bValue = bCosts.daily
+            break
+          case 'weeklyCost':
+            aValue = aCosts.weekly
+            bValue = bCosts.weekly
+            break
+          case 'monthlyCost':
+            aValue = aCosts.monthly
+            bValue = bCosts.monthly
+            break
+          case 'yearlyCost':
+            aValue = aCosts.yearly
+            bValue = bCosts.yearly
+            break
+        }
+      }
+
+      // Handle date comparisons
+      if (sortConfig.key === 'lastPayment' || sortConfig.key === 'nextPayment') {
+        // Parse DD/MM/YYYY format for nextPayment
+        if (sortConfig.key === 'nextPayment') {
+          const [dayA, monthA, yearA] = aValue.split('/')
+          const [dayB, monthB, yearB] = bValue.split('/')
+          aValue = new Date(yearA, monthA - 1, dayA).getTime()
+          bValue = new Date(yearB, monthB - 1, dayB).getTime()
+        } else {
+          aValue = new Date(aValue).getTime()
+          bValue = new Date(bValue).getTime()
+        }
+      }
+
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1
+      return 0
+    })
+
+    return sortedData
+  }, [expenses, sortConfig])
+
+  const handleSort = (key: SortConfig['key']) => {
+    setSortConfig(current => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+    }))
+  }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -167,29 +250,57 @@ export default function FinancialApp() {
   }, [expenses])
 
   const lineChartData = useMemo(() => {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    let accumulatedCosts: { [key: string]: number } = {};
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    let accumulatedCosts: { [key: string]: number } = {}
 
     return months.map((month) => {
-      const monthData: { [key: string]: number } = { [month]: 0 };
-      let totalForMonth = 0;
+      const monthData: { [key: string]: number } = { [month]: 0 }
+      let totalForMonth = 0
 
       expenses.forEach(expense => {
-        const monthlyCost = calculateCosts(expense.amount, expense.frequency).monthly;
-        accumulatedCosts[expense.name] = (accumulatedCosts[expense.name] || 0) + monthlyCost;
-        monthData[expense.name] = accumulatedCosts[expense.name];
-        totalForMonth += monthlyCost;
-      });
+        const monthlyCost = calculateCosts(expense.amount, expense.frequency).monthly
+        accumulatedCosts[expense.name] = (accumulatedCosts[expense.name] || 0) + monthlyCost
+        monthData[expense.name] = accumulatedCosts[expense.name]
+        totalForMonth += monthlyCost
+      })
 
-      monthData['Total'] = Object.values(accumulatedCosts).reduce((sum, cost) => sum + cost, 0);
+      monthData['Total'] = Object.values(accumulatedCosts).reduce((sum, cost) => sum + cost, 0)
 
-      return monthData;
-    });
-  }, [expenses]);
+      return monthData
+    })
+  }, [expenses])
 
   return (
     <div className="container mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">Financial Tracker</h1>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold">Financial Tracker</h1>
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="icon">
+              <Settings2 className="h-4 w-4" />
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Settings</DialogTitle>
+            </DialogHeader>
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="show-dates"
+                checked={showDates}
+                onCheckedChange={(checked) => {
+                  setShowDates(checked)
+                  localStorage.setItem('showDates', JSON.stringify(checked))
+                  if (!checked && sortConfig.key === 'nextPayment') {
+                    setSortConfig({ key: 'name', direction: 'asc' })
+                  }
+                }}
+              />
+              <Label htmlFor="show-dates">Show payment dates</Label>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <Card>
@@ -248,17 +359,19 @@ export default function FinancialApp() {
               required
             />
           </div>
-          <div className="flex-grow min-w-[200px]">
-            <label htmlFor="lastPayment" className="block text-sm font-medium text-gray-700 mb-1">Last Payment (DD/MM/YYYY)</label>
-            <Input
-              id="lastPayment"
-              name="lastPayment"
-              type="date"
-              value={newExpense.lastPayment}
-              onChange={handleInputChange}
-              required
-            />
-          </div>
+          {showDates && (
+            <div className="flex-grow min-w-[200px]">
+              <label htmlFor="lastPayment" className="block text-sm font-medium text-gray-700 mb-1">Last Payment</label>
+              <Input
+                id="lastPayment"
+                name="lastPayment"
+                type="date"
+                value={newExpense.lastPayment}
+                onChange={handleInputChange}
+                required={showDates}
+              />
+            </div>
+          )}
           <div className="flex-grow min-w-[200px]">
             <label htmlFor="frequency" className="block text-sm font-medium text-gray-700 mb-1">Frequency</label>
             <Select value={newExpense.frequency} onValueChange={handleFrequencyChange}>
@@ -290,21 +403,175 @@ export default function FinancialApp() {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Account</TableHead>
-            <TableHead>Last Payment</TableHead>
-            <TableHead>Next Payment</TableHead>
-            <TableHead>Frequency</TableHead>
-            <TableHead>Amount</TableHead>
-            <TableHead>Daily Cost</TableHead>
-            <TableHead>Weekly Cost</TableHead>
-            <TableHead>Monthly Cost</TableHead>
-            <TableHead>Yearly Cost</TableHead>
+            <TableHead>
+              <Button
+                variant="ghost"
+                onClick={() => handleSort('name')}
+                className={`h-8 p-0 hover:bg-transparent ${sortConfig.key === 'name' ? 'text-primary font-bold' : ''}`}
+              >
+                Name
+                {sortConfig.key === 'name' ? (
+                  sortConfig.direction === 'asc' ?
+                    <ArrowUp className="ml-2 h-4 w-4" /> :
+                    <ArrowDown className="ml-2 h-4 w-4" />
+                ) : (
+                  <ArrowUpDown className="ml-2 h-4 w-4" />
+                )}
+              </Button>
+            </TableHead>
+            <TableHead>
+              <Button
+                variant="ghost"
+                onClick={() => handleSort('account')}
+                className={`h-8 p-0 hover:bg-transparent ${sortConfig.key === 'account' ? 'text-primary font-bold' : ''}`}
+              >
+                Account
+                {sortConfig.key === 'account' ? (
+                  sortConfig.direction === 'asc' ?
+                    <ArrowUp className="ml-2 h-4 w-4" /> :
+                    <ArrowDown className="ml-2 h-4 w-4" />
+                ) : (
+                  <ArrowUpDown className="ml-2 h-4 w-4" />
+                )}
+              </Button>
+            </TableHead>
+            {showDates && (
+              <>
+                <TableHead>
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleSort('lastPayment')}
+                    className={`h-8 p-0 hover:bg-transparent ${sortConfig.key === 'lastPayment' ? 'text-primary font-bold' : ''}`}
+                  >
+                    Last Payment
+                    {sortConfig.key === 'lastPayment' ? (
+                      sortConfig.direction === 'asc' ?
+                        <ArrowUp className="ml-2 h-4 w-4" /> :
+                        <ArrowDown className="ml-2 h-4 w-4" />
+                    ) : (
+                      <ArrowUpDown className="ml-2 h-4 w-4" />
+                    )}
+                  </Button>
+                </TableHead>
+                <TableHead>
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleSort('nextPayment')}
+                    className={`h-8 p-0 hover:bg-transparent ${sortConfig.key === 'nextPayment' ? 'text-primary font-bold' : ''}`}
+                  >
+                    Next Payment
+                    {sortConfig.key === 'nextPayment' ? (
+                      sortConfig.direction === 'asc' ?
+                        <ArrowUp className="ml-2 h-4 w-4" /> :
+                        <ArrowDown className="ml-2 h-4 w-4" />
+                    ) : (
+                      <ArrowUpDown className="ml-2 h-4 w-4" />
+                    )}
+                  </Button>
+                </TableHead>
+              </>
+            )}
+            <TableHead>
+              <Button
+                variant="ghost"
+                onClick={() => handleSort('frequency')}
+                className={`h-8 p-0 hover:bg-transparent ${sortConfig.key === 'frequency' ? 'text-primary font-bold' : ''}`}
+              >
+                Frequency
+                {sortConfig.key === 'frequency' ? (
+                  sortConfig.direction === 'asc' ?
+                    <ArrowUp className="ml-2 h-4 w-4" /> :
+                    <ArrowDown className="ml-2 h-4 w-4" />
+                ) : (
+                  <ArrowUpDown className="ml-2 h-4 w-4" />
+                )}
+              </Button>
+            </TableHead>
+            <TableHead>
+              <Button
+                variant="ghost"
+                onClick={() => handleSort('amount')}
+                className={`h-8 p-0 hover:bg-transparent ${sortConfig.key === 'amount' ? 'text-primary font-bold' : ''}`}
+              >
+                Amount
+                {sortConfig.key === 'amount' ? (
+                  sortConfig.direction === 'asc' ?
+                    <ArrowUp className="ml-2 h-4 w-4" /> :
+                    <ArrowDown className="ml-2 h-4 w-4" />
+                ) : (
+                  <ArrowUpDown className="ml-2 h-4 w-4" />
+                )}
+              </Button>
+            </TableHead>
+            <TableHead>
+              <Button
+                variant="ghost"
+                onClick={() => handleSort('dailyCost')}
+                className={`h-8 p-0 hover:bg-transparent ${sortConfig.key === 'dailyCost' ? 'text-primary font-bold' : ''}`}
+              >
+                Daily Cost
+                {sortConfig.key === 'dailyCost' ? (
+                  sortConfig.direction === 'asc' ?
+                    <ArrowUp className="ml-2 h-4 w-4" /> :
+                    <ArrowDown className="ml-2 h-4 w-4" />
+                ) : (
+                  <ArrowUpDown className="ml-2 h-4 w-4" />
+                )}
+              </Button>
+            </TableHead>
+            <TableHead>
+              <Button
+                variant="ghost"
+                onClick={() => handleSort('weeklyCost')}
+                className={`h-8 p-0 hover:bg-transparent ${sortConfig.key === 'weeklyCost' ? 'text-primary font-bold' : ''}`}
+              >
+                Weekly Cost
+                {sortConfig.key === 'weeklyCost' ? (
+                  sortConfig.direction === 'asc' ?
+                    <ArrowUp className="ml-2 h-4 w-4" /> :
+                    <ArrowDown className="ml-2 h-4 w-4" />
+                ) : (
+                  <ArrowUpDown className="ml-2 h-4 w-4" />
+                )}
+              </Button>
+            </TableHead>
+            <TableHead>
+              <Button
+                variant="ghost"
+                onClick={() => handleSort('monthlyCost')}
+                className={`h-8 p-0 hover:bg-transparent ${sortConfig.key === 'monthlyCost' ? 'text-primary font-bold' : ''}`}
+              >
+                Monthly Cost
+                {sortConfig.key === 'monthlyCost' ? (
+                  sortConfig.direction === 'asc' ?
+                    <ArrowUp className="ml-2 h-4 w-4" /> :
+                    <ArrowDown className="ml-2 h-4 w-4" />
+                ) : (
+                  <ArrowUpDown className="ml-2 h-4 w-4" />
+                )}
+              </Button>
+            </TableHead>
+            <TableHead>
+              <Button
+                variant="ghost"
+                onClick={() => handleSort('yearlyCost')}
+                className={`h-8 p-0 hover:bg-transparent ${sortConfig.key === 'yearlyCost' ? 'text-primary font-bold' : ''}`}
+              >
+                Yearly Cost
+                {sortConfig.key === 'yearlyCost' ? (
+                  sortConfig.direction === 'asc' ?
+                    <ArrowUp className="ml-2 h-4 w-4" /> :
+                    <ArrowDown className="ml-2 h-4 w-4" />
+                ) : (
+                  <ArrowUpDown className="ml-2 h-4 w-4" />
+                )}
+              </Button>
+            </TableHead>
             <TableHead>Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {expenses.map(expense => {
+          {sortedExpenses.map(expense => {
             const costs = calculateCosts(expense.amount, expense.frequency)
             return (
               <TableRow key={expense.id}>
@@ -332,20 +599,24 @@ export default function FinancialApp() {
                     expense.account
                   )}
                 </TableCell>
-                <TableCell onDoubleClick={() => handleEdit(expense.id, 'lastPayment')}>
-                  {editingId === expense.id && editingField === 'lastPayment' ? (
-                    <Input
-                      value={expense.lastPayment}
-                      onChange={handleEditChange}
-                      onBlur={handleEditBlur}
-                      autoFocus
-                      type="date"
-                    />
-                  ) : (
-                    formatDate(new Date(expense.lastPayment))
-                  )}
-                </TableCell>
-                <TableCell>{expense.nextPayment}</TableCell>
+                {showDates && (
+                  <>
+                    <TableCell onDoubleClick={() => handleEdit(expense.id, 'lastPayment')}>
+                      {editingId === expense.id && editingField === 'lastPayment' ? (
+                        <Input
+                          value={expense.lastPayment}
+                          onChange={handleEditChange}
+                          onBlur={handleEditBlur}
+                          autoFocus
+                          type="date"
+                        />
+                      ) : (
+                        formatDate(new Date(expense.lastPayment))
+                      )}
+                    </TableCell>
+                    <TableCell>{expense.nextPayment}</TableCell>
+                  </>
+                )}
                 <TableCell onDoubleClick={() => handleEdit(expense.id, 'frequency')}>
                   {editingId === expense.id && editingField === 'frequency' ? (
                     <Select
@@ -378,7 +649,7 @@ export default function FinancialApp() {
                       type="number"
                     />
                   ) : (
-                    `$${expense.amount.toFixed(2)}`
+                    `${expense.amount.toFixed(2)}`
                   )}
                 </TableCell>
                 <TableCell>${costs.daily.toFixed(2)}</TableCell>
@@ -478,4 +749,3 @@ export default function FinancialApp() {
     </div>
   )
 }
-
